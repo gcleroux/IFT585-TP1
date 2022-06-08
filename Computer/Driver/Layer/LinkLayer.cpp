@@ -1,6 +1,6 @@
-#include "LinkLayer.h"
+ï»¿#include "LinkLayer.h"
 #include "../NetworkDriver.h"
-//
+
 #include "../../../General/Configuration.h"
 #include "../../../General/Logger.h"
 
@@ -42,11 +42,13 @@ void LinkLayer::start()
 
     m_timers->start();
 
+	m_executeSending = true;
+	m_senderThread = std::thread(&LinkLayer::senderCallback, this);
+
     m_executeReceiving = true;
     m_receiverThread = std::thread(&LinkLayer::receiverCallback, this);
 
-    m_executeSending = true;
-    m_senderThread = std::thread(&LinkLayer::senderCallback, this);
+   
 }
 
 // Arrete les fils d'execution pour l'envoi et la reception des trames
@@ -100,7 +102,7 @@ bool LinkLayer::sendFrame(const Frame& frame)
     {
         if (canSendData(frame))
         {
-            // Vous pouvez décommenter ce code pour avoir plus de détails dans la console lors de l'exécution
+            // Vous pouvez dÃ©commenter ce code pour avoir plus de dÃ©tails dans la console lors de l'exÃ©cution
             //Logger log(std::cout);
             //if (frame.Size == FrameType::NAK)
             //{
@@ -276,7 +278,7 @@ void LinkLayer::receiveData(Frame data)
     // Si la couche est pleine, la trame est perdue. Elle devra etre envoye a nouveau par l'emetteur
     if (canReceiveDataFromPhysicalLayer(data))
     {
-        // Est-ce que la trame reçue est pour nous?
+        // Est-ce que la trame reÃ§ue est pour nous?
         if (data.Destination == m_address || data.Destination.isMulticast())
         {
             m_receivingQueue.push(data);
@@ -295,42 +297,42 @@ MACAddress LinkLayer::arp(const Packet& packet) const
 // Fonction qui fait l'envoi des trames et qui gere la fenetre d'envoi
 void LinkLayer::senderCallback()
 {
-    // À faire TP
-    // Remplacer le code suivant qui ne fait qu'envoyer les trames dans l'ordre reçu sans validation
-    // afin d'exécuter le protocole à fenêtre demandé dans l'énoncé.
-    
-    // Passtrough
+ 
     NumberSequence nextID = 0;
+	m_maximumBufferedFrameCount = 5; 
+	m_maximumSequence = 5;
+
+
     while (m_executeSending)
     {
+		
         // Est-ce qu'on doit envoyer des donnees
-        if (m_driver->getNetworkLayer().dataReady())
-        {
-            Packet packet = m_driver->getNetworkLayer().getNextData();
-            Frame frame;
-            frame.Destination = arp(packet);
-            frame.Source = m_address;
-            frame.NumberSeq = nextID++;
-            frame.Data = Buffering::pack<Packet>(packet);
-            frame.Size = (uint16_t)frame.Data.size();
+        /*if (m_driver->getNetworkLayer().dataReady())
+        {*/
+		for (int  i = 0; i < m_maximumBufferedFrameCount; i++)
+		{
+			Packet packet = m_driver->getNetworkLayer().getNextData();
+			Frame frame;
+			frame.Destination = arp(packet);
+			frame.Source = m_address;
+			frame.NumberSeq = nextID++;
+			frame.Data = Buffering::pack<Packet>(packet);
+			frame.Size = (uint16_t)frame.Data.size();
 
-            // On envoit la trame. Si la trame n'est pas envoye, c'est qu'on veut arreter le simulateur
-            if (!sendFrame(frame))
-            {
-                return;
-            }
-        }
+			// On envoit la trame. Si la trame n'est pas envoye, c'est qu'on veut arreter le simulateur
+			if (!sendFrame(frame))
+			{
+				return;
+			}
+		}
+           
+        //}
     }
 }
 
 // Fonction qui s'occupe de la reception des trames
 void LinkLayer::receiverCallback()
 {
-    // À faire TP
-    // Remplacer le code suivant qui ne fait que recevoir les trames dans l'ordre reçu sans validation
-    // afin d'exécuter le protocole à fenêtre demandé dans l'énoncé.
-    
-    // Passtrough
     while (m_executeReceiving)
     {        
         if (m_receivingQueue.canRead<Frame>())
