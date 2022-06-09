@@ -1,1 +1,1 @@
-alphabet.txt=aa:bb:cc:dd:ee:ff
+cat.jpg=aa:bb:cc:dd:ee:ff
