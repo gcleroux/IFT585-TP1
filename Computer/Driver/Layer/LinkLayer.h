@@ -13,6 +13,8 @@
 #include <queue>
 #include <mutex>
 #include <thread>
+#include <list>
+#include <map>
 
 class Configuration;
 class NetworkDriver;
@@ -30,6 +32,7 @@ private:
         SEND_ACK_REQUEST, // On doit envoyer ce ACK
         SEND_NAK_REQUEST, // On doit envoyer ce NAK
         STOP_ACK_TIMER_REQUEST, // On veut arreter les timers de ACK pour une adresse particuliere
+        END_TRANSMISSION    // On a plus de trames a envoyer 
     };
 
     struct Event
@@ -72,6 +75,21 @@ private:
     std::thread m_senderThread;
     std::thread m_receiverThread;
 
+    // Map keeping track of the timerIDS
+    // std::map<size_t, NumberSequence> m_timerIDs;
+
+    // Data for the sliding window
+    // const size_t TOTAL_SIZE;
+    // const size_t WINDOW_SIZE;
+    // size_t m_startPos;
+    // size_t m_endPos;
+    
+    // Paquets qui seront distribue
+    std::map<size_t, Frame> sendBuffer;
+    std::map<size_t, Frame> receivingBuffer;
+    
+    NumberSequence m_nSeqExpected;
+
     void receiverCallback();
     void senderCallback();
 
@@ -100,7 +118,11 @@ private:
     MACAddress arp(const Packet& p) const; // Retourne la MACAddress de destination du packet
     bool canReceiveDataFromPhysicalLayer(const Frame& data) const;
 
-public:
+    void removeFrameFromSendBuffer(const Frame &frame);
+
+    void processDataFrame(const Frame &frame);
+
+public: 
     LinkLayer(NetworkDriver* driver, const Configuration& config);
     ~LinkLayer();
 

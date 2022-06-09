@@ -7,3 +7,6 @@ Makefile
 
 # Ignoring transmitted files
 Output/From*.txt
+
+# Ignore VSCode garbo file
+.vscode

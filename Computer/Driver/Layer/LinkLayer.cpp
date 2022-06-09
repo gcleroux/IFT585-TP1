@@ -100,7 +100,7 @@ bool LinkLayer::sendFrame(const Frame& frame)
     {
         if (canSendData(frame))
         {
-            // Vous pouvez décommenter ce code pour avoir plus de détails dans la console lors de l'exécution
+            // Vous pouvez dï¿½commenter ce code pour avoir plus de dï¿½tails dans la console lors de l'exï¿½cution
             //Logger log(std::cout);
             //if (frame.Size == FrameType::NAK)
             //{
@@ -276,7 +276,7 @@ void LinkLayer::receiveData(Frame data)
     // Si la couche est pleine, la trame est perdue. Elle devra etre envoye a nouveau par l'emetteur
     if (canReceiveDataFromPhysicalLayer(data))
     {
-        // Est-ce que la trame reçue est pour nous?
+        // Est-ce que la trame reï¿½ue est pour nous?
         if (data.Destination == m_address || data.Destination.isMulticast())
         {
             m_receivingQueue.push(data);
@@ -295,48 +295,238 @@ MACAddress LinkLayer::arp(const Packet& packet) const
 // Fonction qui fait l'envoi des trames et qui gere la fenetre d'envoi
 void LinkLayer::senderCallback()
 {
-    // À faire TP
-    // Remplacer le code suivant qui ne fait qu'envoyer les trames dans l'ordre reçu sans validation
-    // afin d'exécuter le protocole à fenêtre demandé dans l'énoncé.
-    
-    // Passtrough
+    // ï¿½ï¿½ faire TP
+    // Remplacer le code suivant qui ne fait qu'envoyer les trames dans l'ordre reï¿½u sans validation
+    // afin d'exï¿½cuter le protocole ï¿½ fenï¿½tre demandï¿½ dans l'ï¿½noncï¿½.
     NumberSequence nextID = 0;
     while (m_executeSending)
     {
-        // Est-ce qu'on doit envoyer des donnees
-        if (m_driver->getNetworkLayer().dataReady())
-        {
-            Packet packet = m_driver->getNetworkLayer().getNextData();
-            Frame frame;
-            frame.Destination = arp(packet);
-            frame.Source = m_address;
-            frame.NumberSeq = nextID++;
-            frame.Data = Buffering::pack<Packet>(packet);
-            frame.Size = (uint16_t)frame.Data.size();
+        Logger log(std::cout);
+        // On recupere le dernier event
+        Event sendEvent = getNextSendingEvent();
 
-            // On envoit la trame. Si la trame n'est pas envoye, c'est qu'on veut arreter le simulateur
-            if (!sendFrame(frame))
+        switch (sendEvent.Type)
+        {
+            // Pas d'ï¿½vï¿½nements, proceed as normal
+            case EventType::INVALID:
             {
-                return;
+                // Est-ce qu'on doit envoyer des donnees
+                if (m_driver->getNetworkLayer().dataReady())
+                {
+                    Packet packet = m_driver->getNetworkLayer().getNextData();
+                    Frame frame;
+                    frame.Destination = arp(packet);
+                    frame.Source = m_address;
+                    frame.NumberSeq = nextID++;
+                    frame.Data = Buffering::pack<Packet>(packet);
+                    frame.Size = (uint16_t)frame.Data.size();
+
+                    // On envoit la trame. Si la trame n'est pas envoyee,
+                    // c'est qu'on veut arreter le simulateur
+                    if (!sendFrame(frame))
+                    {
+                        return;
+                    }
+                    // On cree un nouveau timerID pour le renvoi
+                    size_t timerID = startTimeoutTimer(frame.NumberSeq);
+                    // On insere l'element dans le buffer
+                    sendBuffer.insert(std::make_pair(timerID, frame));
+                }
             }
+            // Delai ecoule pour la reception de la trame
+            case EventType::SEND_TIMEOUT:
+            {
+                // log << "SEND_TIMEOUT event reached for frame: " << sendEvent.Number << std::endl;
+                               
+                // On cherche le frame associe a notre timerID
+                auto it = sendBuffer.find(sendEvent.TimerID);
+
+                if (it != sendBuffer.end())
+                {
+                    // Le timerID est toujours actif, on renvoie la trame
+                    Frame frame = it->second;
+                    if (!sendFrame(frame))
+                    {
+                        return;
+                    }
+                    log << "Sending frame " << frame.NumberSeq << " again." << std::endl;
+                    // On cree un nouveau timerID pour le renvoi
+                    size_t timerID = startTimeoutTimer(frame.NumberSeq);
+
+                    // On remplace l'element dans le buffer d'envoie
+                    sendBuffer.erase(it);
+                    sendBuffer.insert(std::make_pair(timerID, frame));
+                }
+                break;
+            }
+
+            // On a recue la bonne trame et on desire envoyer un ACK a la source
+            case EventType::SEND_ACK_REQUEST:
+            {
+                Frame frame;
+                frame.Destination = sendEvent.Address;
+                frame.Source = m_address;
+                frame.NumberSeq = sendEvent.Number;
+                frame.Size = FrameType::ACK;
+
+                // On envoit le ACK a l'autre machine
+                if (!sendFrame(frame))
+                {
+                    return;
+                }
+                break;
+            }
+
+            default:
+                log << "default" << std::endl;
+                break;
         }
+        
     }
 }
 
 // Fonction qui s'occupe de la reception des trames
 void LinkLayer::receiverCallback()
 {
-    // À faire TP
-    // Remplacer le code suivant qui ne fait que recevoir les trames dans l'ordre reçu sans validation
-    // afin d'exécuter le protocole à fenêtre demandé dans l'énoncé.
-    
-    // Passtrough
+    // ï¿½ï¿½ faire TP
+    // Remplacer le code suivant qui ne fait que recevoir les trames dans l'ordre reï¿½u sans validation
+    // afin d'exï¿½cuter le protocole ï¿½ fenï¿½tre demandï¿½ dans l'ï¿½noncï¿½.
     while (m_executeReceiving)
-    {        
-        if (m_receivingQueue.canRead<Frame>())
+    {
+        Logger log(std::cout);
+        Event recEvent = getNextReceivingEvent();
+
+        switch (recEvent.Type)
         {
-            Frame frame = m_receivingQueue.pop<Frame>();
-            m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
+            // Aucun evenement particulier
+            case EventType::INVALID:
+            {
+                if (m_receivingQueue.canRead<Frame>())
+                {
+                    Frame frame = m_receivingQueue.pop<Frame>();
+
+                    if (frame.Size == FrameType::ACK)
+                    {
+                        log << "ACK recu, on efface la trame " << frame.NumberSeq << " du buffer d'envoie" << std::endl;
+                        
+                        // On cherche le timerID associe a notre trame et on le stoppe
+                        for (auto it = sendBuffer.begin(); it != sendBuffer.end(); ++it)
+                        {
+                            Frame bufferFrame = it->second;
+
+                            if (frame.NumberSeq == bufferFrame.NumberSeq)
+                            {
+                                // Le timerID est toujours actif
+                                stopAckTimer(it->first);
+                                removeFrameFromSendBuffer(it->second);
+                                break;
+                            }
+                        }
+                        // Ne devrait jamais se produire, redondant comme break
+                        break;
+                    }
+                    else if (frame.Size == FrameType::NAK)
+                    {
+                        log << "Nak in receiving" << std::endl;
+                        // Traitement du NAK
+                    }
+                    else
+                    {
+                        log << "Normal frame received" << std::endl;
+                        // Si on a recu la bonne trame on  traite, sinon on ignore
+                        if (frame.NumberSeq == m_nSeqExpected)
+                        {
+                            log << "Trame " << frame.NumberSeq << " recue, on fait le traitement." << std::endl;
+                            // On a recu la bonne trame, on incremente la trame attendue
+                            m_nSeqExpected++;
+
+                            // On envoie les donnees a la couche reseau
+                            m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
+                        }
+                        // On fait une demande d'envoie de ACK pour la trame recue
+                        sendAck(frame.Source, frame.NumberSeq);
+                        break;
+                    }
+                }
+                break;
+            }
+
+            default: 
+                log << "default" << std::endl;
+                break;
+        }   
+    }
+}
+
+void LinkLayer::removeFrameFromSendBuffer(const Frame& frame)
+{
+    // Parcours de la liste des trames envoyee
+    for (auto iter = sendBuffer.begin(); iter != sendBuffer.end(); ++iter)
+    {
+        // On extrait les donnees du buffer
+        Frame bufferFrame = iter->second;
+
+        if (bufferFrame.NumberSeq == frame.NumberSeq)
+        {
+            sendBuffer.erase(iter);
+            return;            
         }
     }
 }
+
+void LinkLayer::processDataFrame(const Frame& frame)
+{
+    Logger log(std::cout);
+    // Si on a recu la bonne trame on  traite, sinon on ignore
+    if (frame.NumberSeq == m_nSeqExpected)
+    {
+        log << "Trame " << frame.NumberSeq << " recue, on fait le traitement." << std::endl;
+        // On a recu la bonne trame, on incremente la trame attendue
+        m_nSeqExpected++;
+
+        // On fait une demande d'envoie de ACK pour la trame recue
+        sendAck(frame.Source, frame.NumberSeq);
+
+        // On envoie les donnees a la couche reseau
+        m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
+        return;
+    }
+    log << "Trame " << frame.NumberSeq << " ignoree, on attendait " << m_nSeqExpected << std::endl;
+}
+
+
+// case EventType::ACK_RECEIVED:
+// // Not yet implemented
+// break;
+
+// // On est dans l'attente d'un ACK pour le paquet
+// case EventType::SEND_ACK_REQUEST:
+
+// Event nextEvent;
+
+// // Attente active pour un ACK recu ou le timer a expire
+// while (nextEvent.Type != EventType::ACK_RECEIVED || nextEvent.Type != EventType::SEND_TIMEOUT)
+// {
+//     Event nextEvent = getNextSendingEvent();
+// }
+
+// // Le timer a expire, on renvoit la trame et on repart le timer pour le ACK
+// if (nextEvent.Type == EventType::SEND_TIMEOUT)
+// {
+//     for (auto frame : inBuffer)
+//     {
+//         // On doit renvoyer cet evenement
+//         if (frame.NumberSeq == nextEvent.Number)
+//         {
+//             if (!sendFrame(frame))
+//             {
+//                 return;
+//             }
+//         }
+//     }
+
+// }
+
+// case EventType::NAK_RECEIVED:
+// // Not yet implemented
+// break;

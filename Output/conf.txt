@@ -1,0 +1,3 @@
+TransmissionHubNoise=0
+TransmissionHubNoiseFrequency=0
+TransmissionHubNoiseByteErrorFrequency=0
