@@ -306,9 +306,14 @@ MACAddress LinkLayer::arp(const Packet& packet) const
 // Fonction qui fait l'envoi des trames et qui gere la fenetre d'envoi
 void LinkLayer::senderCallback()
 {
-    // �� faire TP
-    // Remplacer le code suivant qui ne fait qu'envoyer les trames dans l'ordre re�u sans validation
-    // afin d'ex�cuter le protocole � fen�tre demand� dans l'�nonc�.
+    /*
+    Ce sleep est nécéssaire pour corriger un problème avec le simulateur. Lorsque le fichier From_MAC1_to_MAC2... est
+    créé, c'est comme si les threads perdent leur synchronisation. Donc, on se retrouve prit dans une boucle de timeout 
+    et le fichier n'est pas complet. Si on sleep pour une seconde avant de commencer le traitement, le problème 
+    disparait. C'est un peu un hack, mais ca marche so...
+    */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     while (m_executeSending)
     {
         Logger log(std::cout);
@@ -397,9 +402,14 @@ void LinkLayer::senderCallback()
 // Fonction qui s'occupe de la reception des trames
 void LinkLayer::receiverCallback()
 {
-    // �� faire TP
-    // Remplacer le code suivant qui ne fait que recevoir les trames dans l'ordre re�u sans validation
-    // afin d'ex�cuter le protocole � fen�tre demand� dans l'�nonc�.
+    /*
+    Ce sleep est nécéssaire pour corriger un problème avec le simulateur. Lorsque le fichier From_MAC1_to_MAC2... est
+    créé, c'est comme si les threads perdent leur synchronisation. Donc, on se retrouve prit dans une boucle de timeout
+    et le fichier n'est pas complet. Si on sleep pour une seconde avant de commencer le traitement, le problème
+    disparait. C'est un peu un hack, mais ca marche so...
+    */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     while (m_executeReceiving)
     {
         Logger log(std::cout);
@@ -444,7 +454,6 @@ void LinkLayer::receiverCallback()
 
                             // On envoie les donnees a la couche reseau
                             m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
-                            // std::this_thread::sleep_for(std::chrono::milliseconds(2000));
                         }
                         // On fait une demande d'envoie de ACK pour la trame recue
                         sendAck(frame.Source, frame.NumberSeq);
