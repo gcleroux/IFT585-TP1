@@ -32,7 +32,6 @@ private:
         SEND_ACK_REQUEST, // On doit envoyer ce ACK
         SEND_NAK_REQUEST, // On doit envoyer ce NAK
         STOP_ACK_TIMER_REQUEST, // On veut arreter les timers de ACK pour une adresse particuliere
-        END_TRANSMISSION    // On a plus de trames a envoyer 
     };
 
     struct Event
@@ -49,12 +48,66 @@ private:
         }
     };
 
+    // Custom implementation of SlidingWindow DataType
+    struct SlidingWindow
+    {
+        size_t SIZE = 0;    // Total capacity of the buffer
+        size_t WindowLength = 0;    // Size of the SlidingWindow
+        size_t WindowCapacity = 0;
+        NumberSequence NextID = 0;  // ID of the next frame
+        NumberSequence TrameAttendue = 0;
+        NumberSequence LowExpected = 0; // Bottom of the window
+        NumberSequence HighExpected = 0; // Top of the window
+        std::pair<bool, std::pair<size_t, Frame>> Data[100];    // Bool represent if the entry is valid or not
+
+        // Placeholder entry in the window
+        std::pair<bool, std::pair<size_t, Frame>> InvalidEntry(){
+            return std::make_pair(false, std::make_pair(-1, Frame()));
+        }
+
+        void DeleteEntry(NumberSequence pos){
+            if (WindowLength == 0) return;
+
+            Data[pos] = InvalidEntry();
+            WindowLength--;
+        }
+
+        void AddEntry(NumberSequence pos, size_t timerID, const Frame& frame){
+            if (WindowLength == WindowCapacity) return;
+            
+            Data[pos] = std::make_pair(true, std::make_pair(timerID, frame));
+            WindowLength++;
+        }
+
+        void SwitchTimer(NumberSequence pos, size_t timerID){
+            auto entry = Data[pos];
+            if (entry.first == false) return;
+
+            Frame frame = entry.second.second;
+            Data[pos] = std::make_pair(true, std::make_pair(timerID, frame));
+        }
+
+        void UpdateNextID(){
+            NextID = (NextID + 1) % SIZE;
+        }
+
+        bool isFull(){
+            return WindowLength == WindowCapacity;
+        }
+
+        void inc(){
+            TrameAttendue = (TrameAttendue + 1) % SIZE;
+            LowExpected = (LowExpected + 1) % SIZE;
+            HighExpected = (HighExpected + 1) % SIZE;
+        }
+    };
+
     NetworkDriver* m_driver;
     std::unique_ptr<Timer> m_timers;
 
     MACAddress m_address;
 
-    NumberSequence m_maximumSequence;
+    // NumberSequence m_maximumSequence;
     NumberSequence m_maximumBufferedFrameCount;
     
     std::chrono::milliseconds m_transmissionTimeout;
@@ -75,20 +128,7 @@ private:
     std::thread m_senderThread;
     std::thread m_receiverThread;
 
-    // Map keeping track of the timerIDS
-    // std::map<size_t, NumberSequence> m_timerIDs;
-
-    // Data for the sliding window
-    // const size_t TOTAL_SIZE;
-    // const size_t WINDOW_SIZE;
-    // size_t m_startPos;
-    // size_t m_endPos;
-    
-    // Paquets qui seront distribue
-    std::map<size_t, Frame> sendBuffer;
-    std::map<size_t, Frame> receivingBuffer;
-    
-    NumberSequence m_nSeqExpected;
+    SlidingWindow m_slidingWindow;
 
     void receiverCallback();
     void senderCallback();
@@ -117,10 +157,6 @@ private:
 
     MACAddress arp(const Packet& p) const; // Retourne la MACAddress de destination du packet
     bool canReceiveDataFromPhysicalLayer(const Frame& data) const;
-
-    void removeFrameFromSendBuffer(const Frame &frame);
-
-    void processDataFrame(const Frame &frame);
 
 public: 
     LinkLayer(NetworkDriver* driver, const Configuration& config);

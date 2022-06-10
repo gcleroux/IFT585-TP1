@@ -19,9 +19,20 @@ LinkLayer::LinkLayer(NetworkDriver* driver, const Configuration& config)
     , m_executeReceiving(false)
     , m_executeSending(false)
 {
-    m_maximumSequence = m_maximumBufferedFrameCount * 2 - 1;
     m_ackTimeout = m_transmissionTimeout / 4;
     m_timers = std::make_unique<Timer>();
+
+    // Ajustement des fenetres
+    // m_slidingWindow.SIZE = m_maximumBufferedFrameCount * 2;
+    // m_slidingWindow.WindowCapacity = m_maximumBufferedFrameCount;
+    // m_slidingWindow.HighExpected = m_maximumBufferedFrameCount - 1;
+
+    m_slidingWindow.SIZE = m_maximumBufferedFrameCount * 2;
+    m_slidingWindow.WindowCapacity = 1;
+
+    for (int i = 0; i < m_slidingWindow.SIZE; i++){
+        m_slidingWindow.Data[i] = m_slidingWindow.InvalidEntry();
+    }
 }
 
 LinkLayer::~LinkLayer()
@@ -298,7 +309,6 @@ void LinkLayer::senderCallback()
     // �� faire TP
     // Remplacer le code suivant qui ne fait qu'envoyer les trames dans l'ordre re�u sans validation
     // afin d'ex�cuter le protocole � fen�tre demand� dans l'�nonc�.
-    NumberSequence nextID = 0;
     while (m_executeSending)
     {
         Logger log(std::cout);
@@ -313,11 +323,14 @@ void LinkLayer::senderCallback()
                 // Est-ce qu'on doit envoyer des donnees
                 if (m_driver->getNetworkLayer().dataReady())
                 {
+                    // La fenetre est pleine, on ne fait rien
+                    if (m_slidingWindow.isFull()) break;
+
                     Packet packet = m_driver->getNetworkLayer().getNextData();
                     Frame frame;
                     frame.Destination = arp(packet);
                     frame.Source = m_address;
-                    frame.NumberSeq = nextID++;
+                    frame.NumberSeq = m_slidingWindow.NextID;
                     frame.Data = Buffering::pack<Packet>(packet);
                     frame.Size = (uint16_t)frame.Data.size();
 
@@ -327,36 +340,32 @@ void LinkLayer::senderCallback()
                     {
                         return;
                     }
+                    // On ajuste le NextID
+                    m_slidingWindow.UpdateNextID();
+
                     // On cree un nouveau timerID pour le renvoi
                     size_t timerID = startTimeoutTimer(frame.NumberSeq);
+                    
                     // On insere l'element dans le buffer
-                    sendBuffer.insert(std::make_pair(timerID, frame));
+                    m_slidingWindow.AddEntry(frame.NumberSeq, timerID, frame);
                 }
+                break;
             }
             // Delai ecoule pour la reception de la trame
             case EventType::SEND_TIMEOUT:
             {
-                // log << "SEND_TIMEOUT event reached for frame: " << sendEvent.Number << std::endl;
+                log << "SEND_TIMEOUT: " << sendEvent.TimerID << " event reached for frame: " << sendEvent.Number << std::endl;
                                
                 // On cherche le frame associe a notre timerID
-                auto it = sendBuffer.find(sendEvent.TimerID);
+                auto entry = m_slidingWindow.Data[sendEvent.Number];
+                
+                // On ignore
+                if (entry.first == false) break;
 
-                if (it != sendBuffer.end())
-                {
-                    // Le timerID est toujours actif, on renvoie la trame
-                    Frame frame = it->second;
-                    if (!sendFrame(frame))
-                    {
-                        return;
-                    }
-                    log << "Sending frame " << frame.NumberSeq << " again." << std::endl;
-                    // On cree un nouveau timerID pour le renvoi
-                    size_t timerID = startTimeoutTimer(frame.NumberSeq);
+                size_t timerID = startTimeoutTimer(sendEvent.Number);
 
-                    // On remplace l'element dans le buffer d'envoie
-                    sendBuffer.erase(it);
-                    sendBuffer.insert(std::make_pair(timerID, frame));
-                }
+                m_slidingWindow.SwitchTimer(sendEvent.Number, timerID);
+
                 break;
             }
 
@@ -407,22 +416,15 @@ void LinkLayer::receiverCallback()
 
                     if (frame.Size == FrameType::ACK)
                     {
-                        log << "ACK recu, on efface la trame " << frame.NumberSeq << " du buffer d'envoie" << std::endl;
+                        // log << "ACK recu, on efface la trame " << frame.NumberSeq << " du buffer d'envoie" << std::endl;
                         
                         // On cherche le timerID associe a notre trame et on le stoppe
-                        for (auto it = sendBuffer.begin(); it != sendBuffer.end(); ++it)
-                        {
-                            Frame bufferFrame = it->second;
+                        auto entry = m_slidingWindow.Data[frame.NumberSeq];
+                        
+                        if (entry.first == false) break;
 
-                            if (frame.NumberSeq == bufferFrame.NumberSeq)
-                            {
-                                // Le timerID est toujours actif
-                                stopAckTimer(it->first);
-                                removeFrameFromSendBuffer(it->second);
-                                break;
-                            }
-                        }
-                        // Ne devrait jamais se produire, redondant comme break
+                        stopAckTimer(entry.second.first);
+                        m_slidingWindow.DeleteEntry(frame.NumberSeq);
                         break;
                     }
                     else if (frame.Size == FrameType::NAK)
@@ -432,16 +434,17 @@ void LinkLayer::receiverCallback()
                     }
                     else
                     {
-                        log << "Normal frame received" << std::endl;
+                        // log << "Normal frame received" << std::endl;
                         // Si on a recu la bonne trame on  traite, sinon on ignore
-                        if (frame.NumberSeq == m_nSeqExpected)
+                        if (frame.NumberSeq == m_slidingWindow.TrameAttendue)
                         {
-                            log << "Trame " << frame.NumberSeq << " recue, on fait le traitement." << std::endl;
+                            // log << "Trame " << frame.NumberSeq << " recue, on fait le traitement." << std::endl;
                             // On a recu la bonne trame, on incremente la trame attendue
-                            m_nSeqExpected++;
+                            m_slidingWindow.inc();
 
                             // On envoie les donnees a la couche reseau
                             m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
+                            // std::this_thread::sleep_for(std::chrono::milliseconds(2000));
                         }
                         // On fait une demande d'envoie de ACK pour la trame recue
                         sendAck(frame.Source, frame.NumberSeq);
@@ -457,76 +460,3 @@ void LinkLayer::receiverCallback()
         }   
     }
 }
-
-void LinkLayer::removeFrameFromSendBuffer(const Frame& frame)
-{
-    // Parcours de la liste des trames envoyee
-    for (auto iter = sendBuffer.begin(); iter != sendBuffer.end(); ++iter)
-    {
-        // On extrait les donnees du buffer
-        Frame bufferFrame = iter->second;
-
-        if (bufferFrame.NumberSeq == frame.NumberSeq)
-        {
-            sendBuffer.erase(iter);
-            return;            
-        }
-    }
-}
-
-void LinkLayer::processDataFrame(const Frame& frame)
-{
-    Logger log(std::cout);
-    // Si on a recu la bonne trame on  traite, sinon on ignore
-    if (frame.NumberSeq == m_nSeqExpected)
-    {
-        log << "Trame " << frame.NumberSeq << " recue, on fait le traitement." << std::endl;
-        // On a recu la bonne trame, on incremente la trame attendue
-        m_nSeqExpected++;
-
-        // On fait une demande d'envoie de ACK pour la trame recue
-        sendAck(frame.Source, frame.NumberSeq);
-
-        // On envoie les donnees a la couche reseau
-        m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
-        return;
-    }
-    log << "Trame " << frame.NumberSeq << " ignoree, on attendait " << m_nSeqExpected << std::endl;
-}
-
-
-// case EventType::ACK_RECEIVED:
-// // Not yet implemented
-// break;
-
-// // On est dans l'attente d'un ACK pour le paquet
-// case EventType::SEND_ACK_REQUEST:
-
-// Event nextEvent;
-
-// // Attente active pour un ACK recu ou le timer a expire
-// while (nextEvent.Type != EventType::ACK_RECEIVED || nextEvent.Type != EventType::SEND_TIMEOUT)
-// {
-//     Event nextEvent = getNextSendingEvent();
-// }
-
-// // Le timer a expire, on renvoit la trame et on repart le timer pour le ACK
-// if (nextEvent.Type == EventType::SEND_TIMEOUT)
-// {
-//     for (auto frame : inBuffer)
-//     {
-//         // On doit renvoyer cet evenement
-//         if (frame.NumberSeq == nextEvent.Number)
-//         {
-//             if (!sendFrame(frame))
-//             {
-//                 return;
-//             }
-//         }
-//     }
-
-// }
-
-// case EventType::NAK_RECEIVED:
-// // Not yet implemented
-// break;
