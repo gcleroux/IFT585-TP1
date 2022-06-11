@@ -217,9 +217,11 @@ int main(int argc, char *argv[])
             numberFileReceived += computer->receivedFileCount();
         }
     } while (numbercomputerFinished != computers.size() || numberFileReceived != numberFileSent);
-    
 
+    std::cout << "Nombre de fichiers envoyes: " << numberFileSent << std::endl;
+    std::cout << "Nombre de fichiers recus: " << numberFileReceived << std::endl;
     std::cout << "Arret du simulateur..." << std::endl;
+
     hub.stop();
     for (auto computer : computers)
     {

@@ -1,0 +1,12 @@
+# Ignoring CMake files
+CMakeFiles/*
+Output/Simulateur
+cmake_install.cmake
+CMakeCache.txt
+Makefile
+
+# Ignoring transmitted files
+Output/From*.txt
+
+# Ignore VSCode garbo file
+.vscode

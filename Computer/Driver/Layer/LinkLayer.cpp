@@ -8,6 +8,7 @@
 #include <functional>
 #include <map>
 
+bool no_nak = true;
 
 LinkLayer::LinkLayer(NetworkDriver* driver, const Configuration& config)
     : m_driver(driver)
@@ -19,9 +20,17 @@ LinkLayer::LinkLayer(NetworkDriver* driver, const Configuration& config)
     , m_executeReceiving(false)
     , m_executeSending(false)
 {
-    m_maximumSequence = m_maximumBufferedFrameCount * 2 - 1;
+    m_maximumSequence = 2 * m_maximumBufferedFrameCount - 1;
     m_ackTimeout = m_transmissionTimeout / 4;
     m_timers = std::make_unique<Timer>();
+
+    NB_BUFS = (m_maximumSequence + 1) / 2;
+    m_ackAttendu = 0;
+    m_prochaineTrameAEnvoyer = 0;
+    m_trameAttendue = 0;
+    m_tropLoin = NB_BUFS;
+    m_bufferSize = 0;
+
 }
 
 LinkLayer::~LinkLayer()
@@ -100,7 +109,7 @@ bool LinkLayer::sendFrame(const Frame& frame)
     {
         if (canSendData(frame))
         {
-            // Vous pouvez décommenter ce code pour avoir plus de détails dans la console lors de l'exécution
+            // Vous pouvez dï¿½commenter ce code pour avoir plus de dï¿½tails dans la console lors de l'exï¿½cution
             //Logger log(std::cout);
             //if (frame.Size == FrameType::NAK)
             //{
@@ -276,7 +285,7 @@ void LinkLayer::receiveData(Frame data)
     // Si la couche est pleine, la trame est perdue. Elle devra etre envoye a nouveau par l'emetteur
     if (canReceiveDataFromPhysicalLayer(data))
     {
-        // Est-ce que la trame reçue est pour nous?
+        // Est-ce que la trame reï¿½ue est pour nous?
         if (data.Destination == m_address || data.Destination.isMulticast())
         {
             m_receivingQueue.push(data);
@@ -295,48 +304,243 @@ MACAddress LinkLayer::arp(const Packet& packet) const
 // Fonction qui fait l'envoi des trames et qui gere la fenetre d'envoi
 void LinkLayer::senderCallback()
 {
-    // À faire TP
-    // Remplacer le code suivant qui ne fait qu'envoyer les trames dans l'ordre reçu sans validation
-    // afin d'exécuter le protocole à fenêtre demandé dans l'énoncé.
-    
-    // Passtrough
-    NumberSequence nextID = 0;
+    Frame outBuf[NB_BUFS];
+
+    /*
+    Ce sleep est nÃ©cÃ©ssaire pour corriger un problÃ¨me avec le simulateur. Lorsque le fichier From_MAC1_to_MAC2... est
+    crÃ©Ã©, c'est comme si les threads perdent leur synchronisation. Donc, on se retrouve prit dans une boucle de timeout 
+    et le fichier n'est pas complet. Si on sleep pour une seconde avant de commencer le traitement, le problÃ¨me 
+    disparait. C'est un peu un hack, mais ca marche so...
+    */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     while (m_executeSending)
     {
-        // Est-ce qu'on doit envoyer des donnees
-        if (m_driver->getNetworkLayer().dataReady())
-        {
-            Packet packet = m_driver->getNetworkLayer().getNextData();
-            Frame frame;
-            frame.Destination = arp(packet);
-            frame.Source = m_address;
-            frame.NumberSeq = nextID++;
-            frame.Data = Buffering::pack<Packet>(packet);
-            frame.Size = (uint16_t)frame.Data.size();
+        Logger log(std::cout);
+        // On recupere le dernier event
+        Event sendEvent = getNextSendingEvent();
 
-            // On envoit la trame. Si la trame n'est pas envoye, c'est qu'on veut arreter le simulateur
-            if (!sendFrame(frame))
+        switch (sendEvent.Type)
+        {
+            // Pas d'ï¿½vï¿½nements, proceed as normal
+            case EventType::INVALID:
             {
-                return;
+                // Est-ce qu'on doit envoyer des donnees
+                if (m_driver->getNetworkLayer().dataReady())
+                {
+                    // La fenetre est pleine, on ne fait rien
+                    if (m_bufferSize >= NB_BUFS) break;
+
+                    m_bufferSize++;
+
+                    Packet packet = m_driver->getNetworkLayer().getNextData();
+                    Frame frame;
+                    frame.Ack = (m_trameAttendue + m_maximumSequence) % (m_maximumSequence + 1);
+                    frame.Destination = arp(packet);
+                    frame.Source = m_address;
+                    frame.NumberSeq = m_prochaineTrameAEnvoyer;
+                    frame.Data = Buffering::pack<Packet>(packet);
+                    frame.Size = (uint16_t)frame.Data.size();
+
+                    // Ajout de la trame au buffer
+                    outBuf[frame.NumberSeq % NB_BUFS] = frame;
+
+                    // On envoit la trame. Si la trame n'est pas envoyee,
+                    // c'est qu'on veut arreter le simulateur
+                    if (!sendFrame(frame))
+                    {
+                        return;
+                    }
+
+                    // Arret du timer pour l'envoi du ACK en piggybacking
+                    notifyStopAckTimers(frame.Destination);
+
+                    // On cree un nouveau timerID pour le renvoi
+                    size_t timerID = startTimeoutTimer(frame.NumberSeq);
+                    
+                    // On insere l'element dans le buffer
+                    m_sendTimers[timerID] = frame;
+
+                    // On ajuste le NextID
+                    m_prochaineTrameAEnvoyer = (m_prochaineTrameAEnvoyer + 1) % (m_maximumSequence + 1);
+                }
+                break;
             }
+            // Delai ecoule pour la reception de la trame
+            case EventType::SEND_TIMEOUT:
+            {
+                log << "SEND_TIMEOUT: " << sendEvent.TimerID << " event reached for frame: " << sendEvent.Number << std::endl;
+
+                // On arrete tout les timers de ACK
+                for (auto it = m_sendTimers.begin(); it != m_sendTimers.end(); ++it)
+                {
+                    // On a un timer inferieur a celui qu'on doit arreter
+                    if (it->first < sendEvent.TimerID)
+                    {
+                        // On arrete tout les timers
+                        stopAckTimer(it->first);
+                        // On efface la donnee du buffer
+                        m_ackTimers.erase(it);
+                    }
+                }
+                // On recupere la trame
+                Frame frame = m_sendTimers[sendEvent.TimerID];
+
+                // Envoi de la trame
+                if (!sendFrame(frame))
+                {
+                    return;
+                }
+
+                size_t timerID = startTimeoutTimer(sendEvent.Number);
+
+                m_sendTimers[timerID] = frame;
+
+                break;
+            }
+            // On a recue la bonne trame et on desire envoyer un ACK a la source
+            case EventType::SEND_ACK_REQUEST:
+            {
+                Frame frame;
+                frame.Destination = sendEvent.Address;
+                frame.Source = m_address;
+                frame.NumberSeq = sendEvent.Number;
+                frame.Size = FrameType::ACK;
+
+                // On envoit le ACK a l'autre machine
+                if (!sendFrame(frame))
+                {
+                    return;
+                }
+                break;
+            }
+            case EventType::SEND_NAK_REQUEST:
+            {
+                Frame frame;
+                frame.Destination = sendEvent.Address;
+                frame.Source = m_address;
+                frame.NumberSeq = sendEvent.Number;
+                frame.Size = FrameType::NAK;
+
+                // On envoit le ACK a l'autre machine
+                if (!sendFrame(frame))
+                {
+                    return;
+                }
+                break;
+            }
+            default:
+                log << "default" << std::endl;
+                break;
         }
+        
     }
 }
 
 // Fonction qui s'occupe de la reception des trames
 void LinkLayer::receiverCallback()
-{
-    // À faire TP
-    // Remplacer le code suivant qui ne fait que recevoir les trames dans l'ordre reçu sans validation
-    // afin d'exécuter le protocole à fenêtre demandé dans l'énoncé.
-    
-    // Passtrough
+{ 
+    Frame inBuf[NB_BUFS];
+    bool arrive[NB_BUFS];
+
+    for (int i = 0; i < NB_BUFS; i++){
+        arrive[i] = false;
+    }
+
+    /*
+    Ce sleep est nÃ©cÃ©ssaire pour corriger un problÃ¨me avec le simulateur. Lorsque le fichier From_MAC1_to_MAC2... est
+    crÃ©Ã©, c'est comme si les threads perdent leur synchronisation. Donc, on se retrouve prit dans une boucle de timeout
+    et le fichier n'est pas complet. Si on sleep pour une seconde avant de commencer le traitement, le problÃ¨me
+    disparait. C'est un peu un hack, mais ca marche so...
+    */
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     while (m_executeReceiving)
-    {        
-        if (m_receivingQueue.canRead<Frame>())
+    {
+        Logger log(std::cout);
+        Event recEvent = getNextReceivingEvent();
+
+        switch (recEvent.Type)
         {
-            Frame frame = m_receivingQueue.pop<Frame>();
-            m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(frame.Data));
-        }
+            // Aucun evenement particulier
+            case EventType::INVALID:
+            {
+                if (m_receivingQueue.canRead<Frame>())
+                {
+                    Frame frame = m_receivingQueue.pop<Frame>();
+
+                    // Trame de donnees
+                    if (frame.Size != FrameType::ACK || frame.Size != FrameType::NAK)
+                    {
+                        if ((frame.NumberSeq != m_trameAttendue) && no_nak)
+                        {
+                            // On a recu une trame dans le mauvais ordre, on a forcement une erreur de communication
+                            sendNak(frame.Source, m_trameAttendue);
+                        }
+                        else
+                        {
+                            size_t timerID = startAckTimer(0, frame.NumberSeq);
+                            m_ackTimers[timerID] = frame;
+                        }
+
+                        if (between(frame.NumberSeq, m_trameAttendue, m_tropLoin) && (arrive[frame.NumberSeq % NB_BUFS] == false))
+                        {
+                            arrive[frame.NumberSeq % NB_BUFS] = true;
+                            inBuf[frame.NumberSeq % NB_BUFS] = frame;
+
+                            while (arrive[m_trameAttendue % NB_BUFS])
+                            {
+                                m_driver->getNetworkLayer().receiveData(Buffering::unpack<Packet>(inBuf[m_trameAttendue % NB_BUFS].Data));
+                                no_nak = true;
+                                arrive[m_trameAttendue % NB_BUFS] = false;
+                                m_trameAttendue = (m_trameAttendue + 1) % (m_maximumSequence + 1);
+                                m_tropLoin = (m_tropLoin + 1) % (m_maximumSequence + 1);
+
+                                size_t timerID = startAckTimer(0, m_ackAttendu);
+                                m_ackTimers[timerID] = frame;
+                            }
+                        }
+                    }
+                    if ((frame.Size == FrameType::NAK) && between((frame.Ack + 1) % (m_maximumSequence + 1), m_ackAttendu, m_prochaineTrameAEnvoyer))
+                    {
+                        notifyNAK(frame);
+                    }
+
+                    while (between(frame.Ack, m_ackAttendu, m_prochaineTrameAEnvoyer))
+                    {
+                        m_bufferSize--;
+                        stopAckTimer(m_ackAttendu);
+                        m_ackAttendu = (m_ackAttendu + 1) % (m_maximumSequence + 1);
+                    }
+                    break;
+                }
+                break;
+            }
+            case EventType::STOP_ACK_TIMER_REQUEST:
+            {
+                // On arrete tout les timers de ACK
+                for (auto it = m_ackTimers.begin(); it != m_ackTimers.end(); ++it)
+                {
+                    // On a un timer inferieur a celui qu'on doit arreter
+                    if (it->first <= recEvent.TimerID){
+                        // On arrete tout les timers
+                        stopAckTimer(it->first);
+                        // On efface la donnee du buffer
+                        m_ackTimers.erase(it);
+                    }
+                }
+                break;
+            }
+            case EventType::ACK_TIMEOUT:
+            {
+                // Timer pour le ACK ecoule, on doit envoyer une trame ACK sans piggybacking
+                sendAck(recEvent.Address, recEvent.Number);
+                break;
+            }
+
+            default:
+            log << "default" << std::endl;
+            break;
+        }   
     }
 }

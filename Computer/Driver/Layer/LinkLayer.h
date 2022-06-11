@@ -13,6 +13,8 @@
 #include <queue>
 #include <mutex>
 #include <thread>
+#include <list>
+#include <map>
 
 class Configuration;
 class NetworkDriver;
@@ -72,6 +74,16 @@ private:
     std::thread m_senderThread;
     std::thread m_receiverThread;
 
+    NumberSequence NB_BUFS;
+    NumberSequence m_ackAttendu;
+    NumberSequence m_prochaineTrameAEnvoyer;
+    NumberSequence m_trameAttendue;
+    NumberSequence m_tropLoin;
+    NumberSequence m_bufferSize;
+
+    std::map<size_t, Frame> m_sendTimers;
+    std::map<size_t, Frame> m_ackTimers;
+
     void receiverCallback();
     void senderCallback();
 
@@ -100,7 +112,7 @@ private:
     MACAddress arp(const Packet& p) const; // Retourne la MACAddress de destination du packet
     bool canReceiveDataFromPhysicalLayer(const Frame& data) const;
 
-public:
+public: 
     LinkLayer(NetworkDriver* driver, const Configuration& config);
     ~LinkLayer();
 
