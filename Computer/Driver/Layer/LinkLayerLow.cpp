@@ -7,6 +7,7 @@
 #include "../../../General/Logger.h"
 
 #include <iostream>
+#include <cmath>
 
 std::unique_ptr<DataEncoderDecoder> DataEncoderDecoder::CreateEncoderDecoder(const Configuration& config)
 {
