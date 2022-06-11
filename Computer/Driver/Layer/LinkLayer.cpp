@@ -359,7 +359,7 @@ void LinkLayer::senderCallback()
                     size_t timerID = startTimeoutTimer(frame.NumberSeq);
                     
                     // On insere l'element dans le buffer
-                    m_sendTimers[timerID] = std::make_pair(timerID, frame);
+                    m_sendTimers[timerID] = frame;
 
                     // On ajuste le NextID
                     m_prochaineTrameAEnvoyer = (m_prochaineTrameAEnvoyer + 1) % (m_maximumSequence + 1);
@@ -371,8 +371,20 @@ void LinkLayer::senderCallback()
             {
                 log << "SEND_TIMEOUT: " << sendEvent.TimerID << " event reached for frame: " << sendEvent.Number << std::endl;
 
+                // On arrete tout les timers de ACK
+                for (auto it = m_sendTimers.begin(); it != m_sendTimers.end(); ++it)
+                {
+                    // On a un timer inferieur a celui qu'on doit arreter
+                    if (it->first < sendEvent.TimerID)
+                    {
+                        // On arrete tout les timers
+                        stopAckTimer(it->first);
+                        // On efface la donnee du buffer
+                        m_ackTimers.erase(it);
+                    }
+                }
                 // On recupere la trame
-                Frame frame = m_sendTimers[sendEvent.TimerID].second;
+                Frame frame = m_sendTimers[sendEvent.TimerID];
 
                 // Envoi de la trame
                 if (!sendFrame(frame))
@@ -382,7 +394,7 @@ void LinkLayer::senderCallback()
 
                 size_t timerID = startTimeoutTimer(sendEvent.Number);
 
-                m_sendTimers[timerID] = std::make_pair(timerID, frame);
+                m_sendTimers[timerID] = frame;
 
                 break;
             }
@@ -468,7 +480,7 @@ void LinkLayer::receiverCallback()
                         else
                         {
                             size_t timerID = startAckTimer(0, frame.NumberSeq);
-                            m_ackTimers.push_back(timerID);
+                            m_ackTimers[timerID] = frame;
                         }
 
                         if (between(frame.NumberSeq, m_trameAttendue, m_tropLoin) && (arrive[frame.NumberSeq % NB_BUFS] == false))
@@ -485,7 +497,7 @@ void LinkLayer::receiverCallback()
                                 m_tropLoin = (m_tropLoin + 1) % (m_maximumSequence + 1);
 
                                 size_t timerID = startAckTimer(0, m_ackAttendu);
-                                m_ackTimers.push_back(timerID);
+                                m_ackTimers[timerID] = frame;
                             }
                         }
                     }
@@ -506,6 +518,23 @@ void LinkLayer::receiverCallback()
             }
             case EventType::STOP_ACK_TIMER_REQUEST:
             {
+                // On arrete tout les timers de ACK
+                for (auto it = m_ackTimers.begin(); it != m_ackTimers.end(); ++it)
+                {
+                    // On a un timer inferieur a celui qu'on doit arreter
+                    if (it->first <= recEvent.TimerID){
+                        // On arrete tout les timers
+                        stopAckTimer(it->first);
+                        // On efface la donnee du buffer
+                        m_ackTimers.erase(it);
+                    }
+                }
+                break;
+            }
+            case EventType::ACK_TIMEOUT:
+            {
+                // Timer pour le ACK ecoule, on doit envoyer une trame ACK sans piggybacking
+                sendAck(recEvent.Address, recEvent.Number);
                 break;
             }
 

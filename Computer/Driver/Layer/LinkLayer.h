@@ -81,8 +81,8 @@ private:
     NumberSequence m_tropLoin;
     NumberSequence m_bufferSize;
 
-    std::pair<size_t, Frame> m_sendTimers[UINT16_MAX + 1];
-    std::vector<size_t> m_ackTimers;
+    std::map<size_t, Frame> m_sendTimers;
+    std::map<size_t, Frame> m_ackTimers;
 
     void receiverCallback();
     void senderCallback();
