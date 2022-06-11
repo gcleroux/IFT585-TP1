@@ -429,6 +429,23 @@ void LinkLayer::senderCallback()
                 }
                 break;
             }
+            
+            case EventType::NAK_RECEIVED:
+            {
+                Frame frame = outBuf[sendEvent.Number % NB_BUFS];
+                
+                // Envoi de la trame
+                if (!sendFrame(frame))
+                {
+                    return;
+                }
+
+                size_t timerID = startTimeoutTimer(sendEvent.Number);
+
+                m_sendTimers[timerID] = frame;
+
+                break;
+            }
             default:
                 log << "default" << std::endl;
                 break;
