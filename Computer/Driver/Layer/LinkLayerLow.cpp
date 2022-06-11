@@ -43,19 +43,17 @@ std::pair<bool, DynamicDataBuffer> PassthroughDataEncoderDecoder::decode(const D
 //===================================================================
 HammingDataEncoderDecoder::HammingDataEncoderDecoder()
 {
-	// À faire TP
 }
 
 HammingDataEncoderDecoder::~HammingDataEncoderDecoder()
 {
-	// À faire TP
 }
 
 DynamicDataBuffer HammingDataEncoderDecoder::encode(const DynamicDataBuffer& data) const
 {
-    int r_size = 0, pair;    // r_size = nombre de bits de redondance
+    size_t r_size = 0, pair;    // r_size = nombre de bits de redondance
 
-    int m_size = data.size();  //m_size = nombre de bits du message à coder
+    size_t m_size = data.size();  //m_size = nombre de bits du message à coder
 
     // Nous cherchons le nombre de bits de redondance
     while (pow(2, r_size) < m_size + r_size + 1) {
@@ -63,12 +61,12 @@ DynamicDataBuffer HammingDataEncoderDecoder::encode(const DynamicDataBuffer& dat
     }
 
 
-    // int hamming[size + r], j = 0, k = 1;
-    int hamming_code[32], j = 0, k = 1;
+    // size_t hamming[size + r], j = 0, k = 1;
+    size_t hamming_code[32], j = 0, k = 1;
 
 
     // Nous cherchons les positions des bits de redondance
-    for (int i = 1; i <= m_size + r_size; i++) {
+    for (size_t i = 1; i <= m_size + r_size; i++) {
         if (i == pow(2, j)) {
             hamming_code[i] = -1;    //-1 est la valeur initiale des bits de redondance
             j++;
@@ -80,10 +78,10 @@ DynamicDataBuffer HammingDataEncoderDecoder::encode(const DynamicDataBuffer& dat
     }
 
     k = 0;
-    int mini, maxi, x = 0;
+    size_t mini, maxi, x = 0;
 
     // Nous trouvons par la suite la parité des bit
-    for (int i = 1; i <= m_size + r_size; i = pow(2, k)) {
+    for (size_t i = 1; i <= m_size + r_size; i = pow(2, k)) {
         k++;
         pair = 0;
         j = i;
@@ -113,7 +111,7 @@ DynamicDataBuffer HammingDataEncoderDecoder::encode(const DynamicDataBuffer& dat
     DynamicDataBuffer code(new_size);
 
     // Remplissage de buffer
-    for (int i = 0; i < code.size(); i++)
+    for (size_t i = 0; i < code.size(); i++)
     {
         code[i] = hamming_code[i + 1];
     }
@@ -122,26 +120,26 @@ DynamicDataBuffer HammingDataEncoderDecoder::encode(const DynamicDataBuffer& dat
 
 std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const DynamicDataBuffer& data) const
 {
-    int size = data.size();  // size = nombre de bits du code ruçu
-    int code[32];
-    for (int i = 1; i <= size; ++i)
+    size_t size = data.size();  // size = nombre de bits du code ruçu
+    size_t code[32];
+    for (size_t i = 1; i <= size; ++i)
         code[i] = data[i];
 
     // Nous cherchons le nombre de bits de redondance
-    int r_size = 0;
-    for (int i = 1; i <= size; i++)
+    size_t r_size = 0;
+    for (size_t i = 1; i <= size; i++)
     {
         if (pow(2, r_size) == i)
             r_size++;
     }
 
-    int d = 0, ec = 0;
+    size_t d = 0, ec = 0;
 
     // Nous calculons les bits de parité et nous comparons afin de détecter les erreurs
     // NB: Cette méthode implémenté permet de façon efficace de corriger un seul bit erroné
     //     Mais elle ne permet pas de corriger une trame avec plusieurs bit erronés
-    int mini = 1, maxi = 0, s, k, pair, err[10] = { 0 };
-    for (int i = 1; i <= size; i = pow(2, d))
+    size_t mini = 1, maxi = 0, s, k, pair, err[10] = { 0 };
+    for (size_t i = 1; i <= size; i = pow(2, d))
     {
         ++d;
         pair = 0;
@@ -176,8 +174,8 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
     }
 
     // Nous vérifions ici si nous avons détecté une erreur ou pas
-    int flag = 1;
-    for (int i = r_size - 1; i >= 0; i--)
+    size_t flag = 1;
+    for (size_t i = r_size - 1; i >= 0; i--)
     {
         if (err[i] == 1)
         {
@@ -190,8 +188,8 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
     // avec le code corrigé
     if (flag == 0)
     {
-        int position = 0;
-        for (int i = r_size - 1; i >= 0; i--)
+        size_t position = 0;
+        for (size_t i = r_size - 1; i >= 0; i--)
         {
             if (err[i] == 1)
                 position += pow(2, i);
@@ -204,7 +202,7 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
         DynamicDataBuffer result(new_size);
 
         // Remplissage de buffer
-        for (int i = 0; i < result.size(); i++)
+        for (size_t i = 0; i < result.size(); i++)
         {
             result[i] = code[i + 1];
         }
