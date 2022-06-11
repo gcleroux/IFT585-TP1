@@ -48,66 +48,12 @@ private:
         }
     };
 
-    // Custom implementation of SlidingWindow DataType
-    struct SlidingWindow
-    {
-        size_t SIZE = 0;    // Total capacity of the buffer
-        size_t WindowLength = 0;    // Size of the SlidingWindow
-        size_t WindowCapacity = 0;
-        NumberSequence NextID = 0;  // ID of the next frame
-        NumberSequence TrameAttendue = 0;
-        NumberSequence LowExpected = 0; // Bottom of the window
-        NumberSequence HighExpected = 0; // Top of the window
-        std::pair<bool, std::pair<size_t, Frame>> Data[100];    // Bool represent if the entry is valid or not
-
-        // Placeholder entry in the window
-        std::pair<bool, std::pair<size_t, Frame>> InvalidEntry(){
-            return std::make_pair(false, std::make_pair(-1, Frame()));
-        }
-
-        void DeleteEntry(NumberSequence pos){
-            if (WindowLength == 0) return;
-
-            Data[pos] = InvalidEntry();
-            WindowLength--;
-        }
-
-        void AddEntry(NumberSequence pos, size_t timerID, const Frame& frame){
-            if (WindowLength == WindowCapacity) return;
-            
-            Data[pos] = std::make_pair(true, std::make_pair(timerID, frame));
-            WindowLength++;
-        }
-
-        void SwitchTimer(NumberSequence pos, size_t timerID){
-            auto entry = Data[pos];
-            if (entry.first == false) return;
-
-            Frame frame = entry.second.second;
-            Data[pos] = std::make_pair(true, std::make_pair(timerID, frame));
-        }
-
-        void UpdateNextID(){
-            NextID = (NextID + 1) % SIZE;
-        }
-
-        bool isFull(){
-            return WindowLength == WindowCapacity;
-        }
-
-        void inc(){
-            TrameAttendue = (TrameAttendue + 1) % SIZE;
-            LowExpected = (LowExpected + 1) % SIZE;
-            HighExpected = (HighExpected + 1) % SIZE;
-        }
-    };
-
     NetworkDriver* m_driver;
     std::unique_ptr<Timer> m_timers;
 
     MACAddress m_address;
 
-    // NumberSequence m_maximumSequence;
+    NumberSequence m_maximumSequence;
     NumberSequence m_maximumBufferedFrameCount;
     
     std::chrono::milliseconds m_transmissionTimeout;
@@ -128,7 +74,15 @@ private:
     std::thread m_senderThread;
     std::thread m_receiverThread;
 
-    SlidingWindow m_slidingWindow;
+    NumberSequence NB_BUFS;
+    NumberSequence m_ackAttendu;
+    NumberSequence m_prochaineTrameAEnvoyer;
+    NumberSequence m_trameAttendue;
+    NumberSequence m_tropLoin;
+    NumberSequence m_bufferSize;
+
+    std::pair<size_t, Frame> m_sendTimers[UINT16_MAX + 1];
+    std::vector<size_t> m_ackTimers;
 
     void receiverCallback();
     void senderCallback();
