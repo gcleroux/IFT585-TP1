@@ -131,81 +131,6 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
             r_size++;
     }
 
-    /////////////////////////////////////////////////////////////////////////////////////////////////
-    size_t msg[32];
-    size_t count = 0, m_size = 1;
-
-    for (size_t i = 1; i <= size; i++)
-    {
-        if (!(i = pow(2, count)))
-        {
-            msg[m_size] = code[i];
-            m_size++;
-        }
-        else
-            count++;
-    }
-
-    size_t hamming_code[32], j = 0, k = 1, pair;
-
-
-    // Nous cherchons les positions des bits de redondance
-    for (size_t i = 1; i <= m_size + r_size; i++) {
-        if (i == pow(2, j)) {
-            hamming_code[i] = -1;    //-1 est la valeur initiale des bits de redondance
-            j++;
-        }
-        else {
-            hamming_code[i] = msg[k];
-            k++;
-        }
-    }
-
-    k = 0;
-    size_t mini, maxi, x = 0;
-
-    // Nous trouvons par la suite la parité des bit
-    for (size_t i = 1; i <= m_size + r_size; i = pow(2, k)) 
-    {
-        k++;
-        pair = 0;
-        j = i;
-        x = i;
-        mini = 1;
-        maxi = i;
-        while (j <= m_size + r_size) {
-            for (x = j; maxi >= mini && x <= m_size + r_size; mini++, x++) {
-                if (hamming_code[x] == 1)
-                    pair = pair + 1;;
-            }
-            j = x + i;
-            mini = 1;
-        }
-
-        // Vérification de la parité
-        if (pair % 2 == 0) {
-            hamming_code[i] = 0;
-        }
-        else {
-            hamming_code[i] = 1;
-        }
-    }
-
-    // Détection d'erreur:
-    size_t test = 0;
-    for (size_t i = 1; i <= m_size + r_size; i++)
-    {
-        if (hamming_code != code)
-            test = 1;
-    }
-
-    if (test == 1)
-        return std::pair<bool, DynamicDataBuffer>(false, data);
-    else
-        return std::pair<bool, DynamicDataBuffer>(true, data);
-
-    /////////////////////////////////////////////////////////////////////////////////////////////////
-    /*
     size_t d = 0, ec = 0;
 
     // Nous calculons les bits de parité et nous comparons afin de détecter les erreurs
@@ -285,7 +210,7 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
     // Dans le cas de l'abscence d'erreur, nous retournons un booléen True
     // avec le code reçu
     else
-        return std::pair<bool, DynamicDataBuffer>(true, data); */
+        return std::pair<bool, DynamicDataBuffer>(true, data); 
 }
 
 
