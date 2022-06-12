@@ -123,6 +123,8 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
     for (size_t i = 1; i <= size; ++i)
         code[i] = data[i];
 
+
+    
     // Nous cherchons le nombre de bits de redondance
     size_t r_size = 0;
     for (size_t i = 1; i <= size; i++)
@@ -182,6 +184,9 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
         }
     }
 
+    size_t msg[32];
+    size_t count = 0, m_size = 1;
+
     // Dans le cas de la présence d'une erreur, nous retournons un booléen False
     // avec le code corrigé
     if (flag == 0)
@@ -197,9 +202,6 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
         code[position] = !code[position];
 
         // Extraction du message
-        size_t msg[32];
-        size_t count = 0, m_size = 1;
-
         for (size_t i = 1; i <= size; i++)
         {
             if (!(i = pow(2, count)))
@@ -228,9 +230,6 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
     else
 
         // Extraction du message
-        size_t msg[32];
-        size_t count = 0, m_size = 1;
-
         for (size_t i = 1; i <= size; i++)
         {
             if (!(i = pow(2, count)))
