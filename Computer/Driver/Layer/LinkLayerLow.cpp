@@ -192,8 +192,24 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
             if (err[i] == 1)
                 position += pow(2, i);
         }
-        std::cout << "\nUne erreur a été detecté à la position: " << position;
+        
+        // Correction de l'erreur détectée
         code[position] = !code[position];
+
+        // Extraction du message
+        size_t msg[32];
+        size_t count = 0, m_size = 1;
+
+        for (size_t i = 1; i <= size; i++)
+        {
+            if (!(i = pow(2, count)))
+            {
+                msg[m_size] = code[i];
+                m_size++;
+            }
+            else
+                count++;
+        }
 
         // Nous créons le buffer qu'on va retourner
         uint32_t new_size = size;
@@ -202,7 +218,7 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
         // Remplissage de buffer
         for (size_t i = 0; i < result.size(); i++)
         {
-            result[i] = code[i + 1];
+            result[i] = msg[i + 1];
         }
         return std::pair<bool, DynamicDataBuffer>(false, result);
     }
@@ -210,6 +226,31 @@ std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const Dynam
     // Dans le cas de l'abscence d'erreur, nous retournons un booléen True
     // avec le code reçu
     else
+
+        // Extraction du message
+        size_t msg[32];
+        size_t count = 0, m_size = 1;
+
+        for (size_t i = 1; i <= size; i++)
+        {
+            if (!(i = pow(2, count)))
+            {
+                msg[m_size] = code[i];
+                m_size++;
+            }
+            else
+                count++;
+        }
+
+        // Nous créons le buffer qu'on va retourner
+        uint32_t new_size = size;
+        DynamicDataBuffer result(new_size);
+
+        // Remplissage de buffer
+        for (size_t i = 0; i < result.size(); i++)
+        {
+            result[i] = msg[i + 1];
+        }
         return std::pair<bool, DynamicDataBuffer>(true, data); 
 }
 
