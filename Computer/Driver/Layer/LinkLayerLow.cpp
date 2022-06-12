@@ -7,6 +7,7 @@
 #include "../../../General/Logger.h"
 
 #include <iostream>
+#include <cmath>
 
 std::unique_ptr<DataEncoderDecoder> DataEncoderDecoder::CreateEncoderDecoder(const Configuration& config)
 {
@@ -42,24 +43,214 @@ std::pair<bool, DynamicDataBuffer> PassthroughDataEncoderDecoder::decode(const D
 //===================================================================
 HammingDataEncoderDecoder::HammingDataEncoderDecoder()
 {
-	// À faire TP
 }
 
 HammingDataEncoderDecoder::~HammingDataEncoderDecoder()
 {
-	// À faire TP
 }
 
 DynamicDataBuffer HammingDataEncoderDecoder::encode(const DynamicDataBuffer& data) const
 {
-	// À faire TP
-     return data;
+    size_t r_size = 0, pair;    // r_size = nombre de bits de redondance
+
+    size_t m_size = data.size();  //m_size = nombre de bits du message à coder
+
+    // Nous cherchons le nombre de bits de redondance
+    while (pow(2, r_size) < m_size + r_size + 1) {
+        r_size++;
+    }
+
+    size_t hamming_code[32], j = 0, k = 1;
+
+
+    // Nous cherchons les positions des bits de redondance
+    for (size_t i = 1; i <= m_size + r_size; i++) {
+        if (i == pow(2, j)) {
+            hamming_code[i] = -1;    //-1 est la valeur initiale des bits de redondance
+            j++;
+        }
+        else {
+            hamming_code[i] = data[k - 1];
+            k++;
+        }
+    }
+
+    k = 0;
+    size_t mini, maxi, x = 0;
+
+    // Nous trouvons par la suite la parité des bit
+    for (size_t i = 1; i <= m_size + r_size; i = pow(2, k)) {
+        k++;
+        pair = 0;
+        j = i;
+        x = i;
+        mini = 1;
+        maxi = i;
+        while (j <= m_size + r_size) {
+            for (x = j; maxi >= mini && x <= m_size + r_size; mini++, x++) {
+                if (hamming_code[x] == 1)
+                    pair = pair + 1;;
+            }
+            j = x + i;
+            mini = 1;
+        }
+
+        // Vérification de la parité
+        if (pair % 2 == 0) {
+            hamming_code[i] = 0;
+        }
+        else {
+            hamming_code[i] = 1;
+        }
+    }
+
+    // Nous créons le buffer qu'on va retourner
+    uint32_t new_size = m_size + r_size;
+    DynamicDataBuffer code(new_size);
+
+    // Remplissage de buffer
+    for (size_t i = 0; i < code.size(); i++)
+    {
+        code[i] = hamming_code[i + 1];
+    }
+    return code;
 }
 
 std::pair<bool, DynamicDataBuffer> HammingDataEncoderDecoder::decode(const DynamicDataBuffer& data) const
 {
-	// À faire TP
-     return std::pair<bool, DynamicDataBuffer>(true, data);
+    size_t size = data.size();  // size = nombre de bits du code ruçu
+    size_t code[32];
+    for (size_t i = 1; i <= size; ++i)
+        code[i] = data[i];
+
+
+    
+    // Nous cherchons le nombre de bits de redondance
+    size_t r_size = 0;
+    for (size_t i = 1; i <= size; i++)
+    {
+        if (pow(2, r_size) == i)
+            r_size++;
+    }
+
+    size_t d = 0, ec = 0;
+
+    // Nous calculons les bits de parité et nous comparons afin de détecter les erreurs
+    // NB: Cette méthode implémenté permet de façon efficace de corriger un seul bit erroné
+    //     Mais elle ne permet pas de corriger une trame avec plusieurs bit erronés
+    size_t mini = 1, maxi = 0, s, k, pair, err[10] = { 0 };
+    for (size_t i = 1; i <= size; i = pow(2, d))
+    {
+        ++d;
+        pair = 0;
+        s = i;
+        k = i;
+        mini = 1;
+        maxi = i;
+
+        // Nous cherchons le bit de redendance qui est supposé reçu
+        for (s; s <= size;)
+        {
+            for (k = s; maxi >= mini && k <= size; ++mini, ++k)
+            {
+                if (code[k] == 1)
+                    pair++;
+            }
+            s = k + i;
+            mini = 1;
+        }
+
+        // Si c'est la meme parité il n'y a pas d'erreur, si non on marque la position de l'erreur
+        if (pair % 2 == 0) // Même parité
+        {
+            err[ec] = 0;
+            ec++;
+        }
+        else
+        {
+            err[ec] = 1;
+            ec++;
+        }
+    }
+
+    // Nous vérifions ici si nous avons détecté une erreur ou pas
+    size_t flag = 1;
+    for (size_t i = r_size - 1; i >= 0; i--)
+    {
+        if (err[i] == 1)
+        {
+            flag = 0;
+            break;
+        }
+    }
+
+    size_t msg[32];
+    size_t count = 0, m_size = 1;
+
+    // Dans le cas de la présence d'une erreur, nous retournons un booléen False
+    // avec le code corrigé
+    if (flag == 0)
+    {
+        size_t position = 0;
+        for (size_t i = r_size - 1; i >= 0; i--)
+        {
+            if (err[i] == 1)
+                position += pow(2, i);
+        }
+        
+        // Correction de l'erreur détectée
+        code[position] = !code[position];
+
+        // Extraction du message
+        for (size_t i = 1; i <= size; i++)
+        {
+            if (!(i = pow(2, count)))
+            {
+                msg[m_size] = code[i];
+                m_size++;
+            }
+            else
+                count++;
+        }
+
+        // Nous créons le buffer qu'on va retourner
+        uint32_t new_size = size;
+        DynamicDataBuffer result(new_size);
+
+        // Remplissage de buffer
+        for (size_t i = 0; i < result.size(); i++)
+        {
+            result[i] = msg[i + 1];
+        }
+        return std::pair<bool, DynamicDataBuffer>(false, result);
+    }
+
+    // Dans le cas de l'abscence d'erreur, nous retournons un booléen True
+    // avec le code reçu
+    else
+
+        // Extraction du message
+        for (size_t i = 1; i <= size; i++)
+        {
+            if (!(i = pow(2, count)))
+            {
+                msg[m_size] = code[i];
+                m_size++;
+            }
+            else
+                count++;
+        }
+
+        // Nous créons le buffer qu'on va retourner
+        uint32_t new_size = size;
+        DynamicDataBuffer result(new_size);
+
+        // Remplissage de buffer
+        for (size_t i = 0; i < result.size(); i++)
+        {
+            result[i] = msg[i + 1];
+        }
+        return std::pair<bool, DynamicDataBuffer>(true, data); 
 }
 
 
